@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NV BOT — إعادة التسجيل</title>
+<style>
+:root{--ink:#151a27;--slate:#1f2638;--slate2:#2a3350;--line:#37426399;--lapis:#4b7bec;--gold:#f0b840;--bad:#e5645f;--ok:#58c27d;--text:#e8ecf6;--muted:#8e98b4;--grid:#ffffff10;color-scheme:dark}
+@media (prefers-color-scheme:light){:root{--ink:#eef1f8;--slate:#fff;--slate2:#e4e9f5;--line:#c5cde2;--text:#1a2138;--muted:#5d688a;--grid:#00000010;color-scheme:light}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ink);color:var(--text);font:14px/1.5 "Segoe UI",Tahoma,system-ui,sans-serif}
+header{display:flex;gap:12px;align-items:center;padding:12px 18px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+header h1{font-size:18px;margin:0}
+select,button{font:inherit;color:var(--text);background:var(--slate2);border:1px solid var(--line);border-radius:7px;padding:7px 12px;cursor:pointer}
+button:focus-visible,select:focus-visible{outline:2px solid var(--lapis)}
+button.primary{background:var(--lapis);border-color:var(--lapis);color:#fff}
+main{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:14px;padding:14px 18px}
+@media(max-width:900px){main{grid-template-columns:1fr}}
+canvas{width:100%;aspect-ratio:4/3;background:var(--slate);border:1px solid var(--line);border-radius:10px;display:block}
+.ctl{display:flex;gap:10px;align-items:center;margin-top:10px}
+.ctl input[type=range]{flex:1}
+#log{background:var(--slate);border:1px solid var(--line);border-radius:10px;height:min(70vh,560px);overflow:auto;padding:6px 0}
+#log div{padding:4px 12px;cursor:pointer;display:flex;gap:8px}
+#log div:hover{background:var(--slate2)}
+#log time{color:var(--muted);font-variant-numeric:tabular-nums;min-width:44px}
+#log .k-death,#log .k-kicked{color:var(--bad)} #log .k-watch_start{color:var(--gold)} #log .k-join{color:var(--ok)}
+.legend{color:var(--muted);font-size:12px;margin-top:8px}
+</style>
+</head>
+<body>
+<header>
+  <h1>إعادة التسجيل</h1>
+  <select id="files" aria-label="الجلسة"></select>
+  <span id="meta" style="color:var(--muted)"></span>
+</header>
+<main>
+  <div>
+    <canvas id="cv" width="960" height="720"></canvas>
+    <div class="ctl">
+      <button class="primary" id="play">تشغيل</button>
+      <input type="range" id="seek" min="0" max="1000" value="0" aria-label="الوقت">
+      <span id="clock" style="font-variant-numeric:tabular-nums;min-width:90px">0:00</span>
+      <select id="speed"><option value="1">×1</option><option value="4" selected>×4</option><option value="10">×10</option><option value="30">×30</option></select>
+    </div>
+    <div class="legend">الخريطة من فوق (X/Z). الدايرة الذهبية = اللاعب المراقَب • المربع الأحمر = بلوك اتكسر • الأخضر = بلوك اتحط • النجمة = البوت.</div>
+  </div>
+  <div id="log"></div>
+</main>
+<script>
+const token=new URLSearchParams(location.search).get('token')||''
+const q=p=>p+(p.includes('?')?'&':'?')+'token='+encodeURIComponent(token)
+const $=id=>document.getElementById(id)
+const cv=$('cv'),g=cv.getContext('2d')
+let ev=[],pos=[],blocks=[],dur=1,T=0,playing=false,last=0,bounds,tracks={},meta={}
+const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim()
+const hue=s=>{let h=0;for(const c of s)h=(h*31+c.charCodeAt(0))%360;return `hsl(${h} 70% 60%)`}
+const fmt=ms=>{const s=Math.floor(ms/1000);return Math.floor(s/60)+':'+String(s%60).padStart(2,'0')}
+
+async function list(){
+  const f=await (await fetch(q('/api/replays'))).json()
+  $('files').innerHTML=f.map(x=>`<option value="${x.name}">${x.name.replace('session-','').replace('.jsonl','')}</option>`).join('')||'<option>مفيش تسجيلات</option>'
+  if(f.length)load(f[0].name)
+}
+async function load(name){
+  const txt=await (await fetch(q('/api/replay/'+encodeURIComponent(name)))).text()
+  ev=txt.split('\n').filter(Boolean).map(l=>{try{return JSON.parse(l)}catch{return null}}).filter(Boolean)
+  meta=ev.find(e=>e.type==='meta')||{}
+  pos=ev.filter(e=>e.type==='pos');blocks=ev.filter(e=>e.type==='block')
+  dur=Math.max(1000,ev.length?ev[ev.length-1].t:1000)
+  tracks={};let xs=[],zs=[]
+  for(const p of pos)for(const [n,x,y,z] of p.p){(tracks[n]=tracks[n]||[]).push({t:p.t,x,z});xs.push(x);zs.push(z)}
+  for(const b of blocks){xs.push(b.x);zs.push(b.z)}
+  const pad=10,mn=a=>a.length?Math.min(...a)-pad:-50,mx=a=>a.length?Math.max(...a)+pad:50
+  bounds={x0:mn(xs),x1:mx(xs),z0:mn(zs),z1:mx(zs)}
+  $('meta').textContent=(meta.server||'')+' • '+fmt(dur)
+  const skip=new Set(['pos','meta','block','swing'])
+  $('log').innerHTML=ev.filter(e=>!skip.has(e.type)).map(e=>`<div class="k-${e.type}" data-t="${e.t}"><time>${fmt(e.t)}</time><span>${describe(e)}</span></div>`).join('')||'<div>مفيش أحداث.</div>'
+  T=0;draw()
+}
+const esc=s=>String(s).replace(/[<>&]/g,'')
+function describe(e){switch(e.type){
+  case'chat':return esc(e.msg);case'join':return esc(e.name)+' دخل';case'leave':return esc(e.name)+' خرج'
+  case'death':return esc(e.name)+' مات';case'hurt':return esc(e.name)+' اتضرب'
+  case'watch_start':return 'بدأ مراقبة '+esc(e.target);case'watch_stop':return 'وقف المراقبة'
+  case'target_not_visible':return esc(e.target)+' بعيد عن الرؤية';case'kicked':return 'البوت اتطرد: '+esc(e.reason||'');case'end':return 'نهاية الجلسة'
+  default:return esc(e.type)}}
+$('log').addEventListener('click',e=>{const d=e.target.closest('[data-t]');if(d){T=+d.dataset.t;draw()}})
+
+function sx(x){return 30+(x-bounds.x0)/(bounds.x1-bounds.x0)*(cv.width-60)}
+function sz(z){return 30+(z-bounds.z0)/(bounds.z1-bounds.z0)*(cv.height-60)}
+function draw(){
+  g.clearRect(0,0,cv.width,cv.height)
+  g.strokeStyle=css('--grid');g.lineWidth=1
+  for(let i=1;i<10;i++){g.beginPath();g.moveTo(i*cv.width/10,0);g.lineTo(i*cv.width/10,cv.height);g.stroke();g.beginPath();g.moveTo(0,i*cv.height/10);g.lineTo(cv.width,i*cv.height/10);g.stroke()}
+  for(const b of blocks){if(b.t>T)break;g.fillStyle=b.to==='air'?'#e5645f':'#58c27d';g.fillRect(sx(b.x)-3,sz(b.z)-3,6,6)}
+  let watched=null;for(const p of pos){if(p.t>T)break;watched=p.w}
+  for(const [n,pts] of Object.entries(tracks)){
+    const c=hue(n);g.strokeStyle=c;g.globalAlpha=.55;g.lineWidth=2;g.beginPath();let cur=null,started=false
+    for(const p of pts){if(p.t>T)break;cur=p;started?g.lineTo(sx(p.x),sz(p.z)):(g.moveTo(sx(p.x),sz(p.z)),started=true)}
+    g.stroke();g.globalAlpha=1
+    if(!cur)continue
+    const X=sx(cur.x),Z=sz(cur.z)
+    if(n===meta.bot){g.fillStyle=c;g.font='20px sans-serif';g.textAlign='center';g.fillText('★',X,Z+7)}
+    else{g.fillStyle=c;g.beginPath();g.arc(X,Z,6,0,7);g.fill()
+      if(n===watched){g.strokeStyle=css('--gold');g.lineWidth=3;g.beginPath();g.arc(X,Z,12,0,7);g.stroke()}}
+    g.fillStyle=css('--text');g.font='13px "Segoe UI",sans-serif';g.textAlign='center';g.fillText(n,X,Z-16)
+  }
+  $('seek').value=T/dur*1000;$('clock').textContent=fmt(T)+' / '+fmt(dur)
+}
+function tick(now){if(playing){T+=(now-last)*(+$('speed').value);if(T>=dur){T=dur;playing=false;$('play').textContent='تشغيل'}draw()}last=now;requestAnimationFrame(tick)}
+$('play').onclick=()=>{if(T>=dur)T=0;playing=!playing;$('play').textContent=playing?'إيقاف مؤقت':'تشغيل'}
+$('seek').oninput=e=>{T=e.target.value/1000*dur;draw()}
+$('files').onchange=e=>load(e.target.value)
+requestAnimationFrame(tick);list()
+</script>
+</body>
+</html>

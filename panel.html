@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>NV BOT — لوحة التحكم</title>
+<style>
+:root{--ink:#151a27;--slate:#1f2638;--slate2:#2a3350;--line:#37426399;--lapis:#4b7bec;--gold:#f0b840;--ok:#58c27d;--bad:#e5645f;--text:#e8ecf6;--muted:#8e98b4;color-scheme:dark}
+@media (prefers-color-scheme:light){:root{--ink:#eef1f8;--slate:#fff;--slate2:#e4e9f5;--line:#c5cde2;--text:#1a2138;--muted:#5d688a;color-scheme:light}}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--ink);color:var(--text);font:15px/1.5 "Segoe UI",Tahoma,system-ui,sans-serif;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+header{display:flex;align-items:center;gap:12px;padding:14px 20px;border-bottom:1px solid var(--line)}
+header h1{font-size:19px;margin:0;font-weight:700;letter-spacing:.2px}
+header .dot{width:10px;height:10px;border-radius:50%;background:var(--bad)}
+header .dot.on{background:var(--ok)} header .dot.wait{background:var(--gold)}
+header .sp{flex:1}
+header a{color:var(--lapis);text-decoration:none;font-size:14px}
+main{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:16px;padding:16px 20px;max-width:1400px;margin:auto}
+@media(max-width:980px){main{grid-template-columns:1fr}}
+.view{background:#000;border-radius:10px;overflow:hidden;aspect-ratio:16/10;border:1px solid var(--line);position:relative}
+.view iframe{width:100%;height:100%;border:0;display:block}
+.view .empty{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);text-align:center;padding:20px}
+.side{display:flex;flex-direction:column;gap:14px}
+section{background:var(--slate);border:1px solid var(--line);border-radius:10px;padding:14px}
+section h2{font-size:14px;margin:0 0 10px;color:var(--muted);font-weight:600}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+button,select,input{font:inherit;color:var(--text);background:var(--slate2);border:1px solid var(--line);border-radius:7px;padding:8px 12px}
+button{cursor:pointer}
+button:hover{border-color:var(--lapis)}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--lapis);outline-offset:1px}
+button.primary{background:var(--lapis);border-color:var(--lapis);color:#fff}
+button.danger{background:transparent;border-color:var(--bad);color:var(--bad)}
+button.active{background:var(--gold);border-color:var(--gold);color:#201800}
+input{flex:1;min-width:0}
+.pad{display:grid;grid-template-columns:repeat(3,56px);grid-template-rows:repeat(2,48px);gap:6px;justify-content:center}
+.pad button{padding:0;font-size:18px;touch-action:none;user-select:none}
+.pad .w{grid-column:2}
+.stat{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:14px}
+.stat b{color:var(--muted);font-weight:500}
+.players{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.players button{padding:4px 10px;font-size:13px}
+#toast{position:fixed;bottom:18px;inset-inline:0;margin:auto;width:fit-content;max-width:90%;background:var(--slate2);border:1px solid var(--line);padding:9px 16px;border-radius:8px;opacity:0;transition:opacity .2s;pointer-events:none}
+#toast.show{opacity:1}
+@media(prefers-reduced-motion:reduce){#toast{transition:none}}
+</style>
+</head>
+<body>
+<header>
+  <span class="dot" id="dot"></span>
+  <h1>NV BOT</h1><span id="srv" style="color:var(--muted);font-size:13px"></span>
+  <span class="sp"></span>
+  <a id="replayLink" href="#">التسجيلات</a>
+</header>
+<main>
+  <div>
+    <div class="view" id="view"><div class="empty" id="empty">ادخل البوت السيرفر من الزرار الي على اليمين، والعرض الحي هيظهر هنا.</div></div>
+    <p style="color:var(--muted);font-size:13px;margin:8px 2px">تقدر تتحرك بـ W A S D والمسافة للنط وShift للتسلل، والأسهم للنظر (لازم تكون ضاغط على الصفحة مش جوا خانة كتابة).</p>
+  </div>
+  <div class="side">
+    <section>
+      <h2>الاتصال</h2>
+      <div class="row">
+        <button class="primary" onclick="act('join')">دخول السيرفر</button>
+        <button class="danger" onclick="act('leave')">خروج</button>
+      </div>
+      <div class="stat" style="margin-top:12px">
+        <b>الصحة / الأكل</b><span id="hp">—</span>
+        <b>المكان</b><span id="pos">—</span>
+        <b>المراقبة</b><span id="wt">—</span>
+        <b>التسجيل</b><span id="rc">—</span>
+      </div>
+    </section>
+    <section>
+      <h2>المراقبة</h2>
+      <div class="row">
+        <select id="pl" style="flex:1"></select>
+        <button onclick="act('watch',{name:$('pl').value})">راقب</button>
+        <button onclick="act('unwatch')">إيقاف</button>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <input id="mins" type="number" min="1" max="120" value="5" style="max-width:80px" aria-label="دقائق">
+        <span style="color:var(--muted);font-size:13px">دقيقة لكل لاعب</span>
+        <button id="rot" onclick="toggleRotate()">مراقبة دورية</button>
+      </div>
+    </section>
+    <section>
+      <h2>التحكم</h2>
+      <div class="pad">
+        <button class="w" data-k="forward">▲</button>
+        <button data-k="left" style="grid-row:2;grid-column:3">◀</button>
+        <button data-k="back" style="grid-row:2;grid-column:2">▼</button>
+        <button data-k="right" style="grid-row:2;grid-column:1">▶</button>
+      </div>
+      <div class="row" style="margin-top:10px;justify-content:center">
+        <button data-k="jump">نط</button><button data-k="sneak">تسلل</button><button data-k="sprint">جري</button>
+        <button onclick="act('look',{dyaw:.5})">↶</button><button onclick="act('look',{dyaw:-.5})">↷</button>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <input id="msg" placeholder="اكتب في الشات أو أمر /..." maxlength="250">
+        <button onclick="say()">إرسال</button>
+      </div>
+    </section>
+    <section>
+      <h2>الإخفاء والحركة</h2>
+      <div class="row">
+        <select id="st" onchange="act('stealth',{mode:this.value})">
+          <option value="off">ظاهر (Survival)</option><option value="spectator">Spectator</option>
+          <option value="creative">Creative</option><option value="invisible">شفاف</option>
+        </select>
+        <button id="afk" onclick="toggleAfk()">Anti-AFK</button>
+      </div>
+      <p style="color:var(--muted);font-size:12px;margin:8px 0 0">الإخفاء محتاج إن NV_BOT يكون أوب.</p>
+    </section>
+  </div>
+</main>
+<div id="toast" role="status"></div>
+<script>
+const $=id=>document.getElementById(id)
+const token=new URLSearchParams(location.search).get('token')||''
+let S={},viewerSet=false
+$('replayLink').href='/replay?token='+encodeURIComponent(token)
+
+function toast(t){const e=$('toast');e.textContent=t;e.classList.add('show');clearTimeout(toast.t);toast.t=setTimeout(()=>e.classList.remove('show'),2600)}
+async function api(action,extra={}){
+  try{
+    const r=await fetch('/api/control',{method:'POST',headers:{'content-type':'application/json','x-token':token},body:JSON.stringify({action,...extra})})
+    if(!r.ok)throw new Error(r.status)
+    return await r.json()
+  }catch(e){toast('فشل الاتصال: '+e.message);return{}}
+}
+async function act(a,x){const r=await api(a,x);if(r.ok===false)toast(r.error||'حصل خطأ');else if(!['move','look','status'].includes(a))toast('تم');refresh()}
+function say(){const m=$('msg').value.trim();if(m){act('say',{msg:m});$('msg').value=''}}
+$('msg').addEventListener('keydown',e=>{if(e.key==='Enter')say()})
+const toggleRotate=()=>act('rotate',{on:!S.watch?.rotate,minutes:+$('mins').value||5})
+const toggleAfk=()=>act('afk',{on:!S.afk})
+
+async function refresh(){
+  const s=await api('status');if(s.online===undefined)return
+  S=s
+  $('dot').className='dot '+(s.online?'on':s.connecting?'wait':'')
+  $('srv').textContent=s.server
+  $('hp').textContent=s.online?`${s.health} / ${s.food}`:'—'
+  $('pos').textContent=s.online?s.pos.join('  '):'—'
+  $('wt').textContent=s.watch.target?(s.watch.target+(s.watch.lost?' (بعيد عن الرؤية)':'')):'—'
+  $('rc').textContent=s.recording||'—'
+  $('rot').classList.toggle('active',!!s.watch.rotate)
+  $('afk').classList.toggle('active',!!s.afk)
+  $('st').value=s.stealth
+  const sel=$('pl'),cur=sel.value
+  sel.innerHTML=s.players.map(p=>`<option>${p}</option>`).join('')||'<option value="">مفيش لاعبين</option>'
+  if(s.players.includes(cur))sel.value=cur
+  if(s.online&&!viewerSet&&S.viewer){viewerSet=true;const c=await (await fetch('/api/config?token='+encodeURIComponent(token))).json();
+    setTimeout(()=>{$('empty').remove();$('view').insertAdjacentHTML('beforeend',`<iframe src="${c.viewer}" allow="fullscreen"></iframe>`)},2500)}
+  if(!s.online&&viewerSet){viewerSet=false;$('view').innerHTML='<div class="empty">البوت خرج من السيرفر.</div>'}
+}
+setInterval(refresh,2500);refresh()
+
+/* hold-to-move */
+const held=new Set()
+function mv(k,on){if(on===held.has(k))return;on?held.add(k):held.delete(k);api('move',{dir:k,on})}
+document.querySelectorAll('[data-k]').forEach(b=>{
+  const k=b.dataset.k
+  b.addEventListener('pointerdown',e=>{e.preventDefault();b.setPointerCapture(e.pointerId);mv(k,true)})
+  ;['pointerup','pointercancel'].forEach(ev=>b.addEventListener(ev,()=>mv(k,false)))
+})
+const KEYS={w:'forward',s:'back',a:'left',d:'right',' ':'jump',shift:'sneak',control:'sprint'}
+addEventListener('keydown',e=>{if(/INPUT|SELECT/.test(document.activeElement.tagName))return
+  const k=KEYS[e.key.toLowerCase()];if(k){e.preventDefault();mv(k,true)}
+  if(e.key==='ArrowLeft')act('look',{dyaw:.3});if(e.key==='ArrowRight')act('look',{dyaw:-.3})
+  if(e.key==='ArrowUp')act('look',{dpitch:.2});if(e.key==='ArrowDown')act('look',{dpitch:-.2})})
+addEventListener('keyup',e=>{const k=KEYS[e.key.toLowerCase()];if(k)mv(k,false)})
+addEventListener('blur',()=>[...held].forEach(k=>mv(k,false)))
+</script>
+</body>
+</html>
